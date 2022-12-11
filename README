@@ -1,0 +1,15 @@
+Inspired by "How to solve a white puzzle" (https://www.youtube.com/watch?v=WsPHBD5NsS0)
+
+Puzzle pieces provided by https://www.reddit.com/r/StuffMadeHere/comments/zaq7f7/puzzle_piece_raw_image_dataset/
+
+Steps:
+* read image DONE
+* compute edges DONE
+* compute contours DONE
+* detect borders
+* orient shapes DONE (need better orient borders)
+* compute 4 corners
+* compute 4 edge fingerprint
+* compute groups of fingerprints
+* compute puzzle assembly
+
