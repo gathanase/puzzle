@@ -28,21 +28,21 @@ from math import atan2, degrees
 
 class Display():
     def __init__(self):
-        self.images = []
+        self.tiles = []
 
-    def add(self, data, title):
-        image = (data, title)
-        self.images.append(image)
+    def add(self, image, title):
+        tile = (image, title)
+        self.tiles.append(tile)
 
     def show(self):
-        nb_rows = round(math.sqrt(len(self.images)))
-        nb_cols = math.ceil(len(self.images) / nb_rows)
+        nb_rows = round(math.sqrt(len(self.tiles)))
+        nb_cols = math.ceil(len(self.tiles) / nb_rows)
         fig = plt.figure(figsize=(7, 7), tight_layout=True)
         axis = None
-        for idx, image in enumerate(self.images):
-            data, title = image
+        for idx, tile in enumerate(self.tiles):
+            image, title = tile
             axis = fig.add_subplot(nb_rows, nb_cols, idx+1, sharex = axis, sharey = axis)
-            plt.imshow(data)
+            plt.imshow(image)
             plt.axis('off')
             plt.title(title)
         plt.show()
