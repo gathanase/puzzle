@@ -12,10 +12,10 @@ import cv2
 import importlib
 import math
 import statistics
+from functools import cached_property
 
 
-from math import atan2, degrees
-
+#from math import atan2, degrees
 #def angle_between(p1, p2, p3):
 #    x1, y1 = p1
 #    x2, y2 = p2
@@ -26,115 +26,34 @@ from math import atan2, degrees
 #    return angle if 0 <= angle <= 180 else angle - 360
 
 
-class Display():
-    def __init__(self):
-        self.tiles = []
-
-    def add(self, image, title):
-        tile = (image, title)
-        self.tiles.append(tile)
-
-    def show(self):
-        nb_rows = round(math.sqrt(len(self.tiles)))
-        nb_cols = math.ceil(len(self.tiles) / nb_rows)
-        fig = plt.figure(figsize=(7, 7), tight_layout=True)
-        axis = None
-        for idx, tile in enumerate(self.tiles):
-            image, title = tile
-            axis = fig.add_subplot(nb_rows, nb_cols, idx+1, sharex = axis, sharey = axis)
-            plt.imshow(image)
-            plt.axis('off')
-            plt.title(title)
-        plt.show()
-
-
-class Shape():
-    def __init__(self, img_orig, contour):
-        self.contour = contour
-        self.straight_rect = cv2.boundingRect(self.contour)
-        (x, y, w, h) = self.straight_rect
-        self.straight_img = img_orig[y:y+h, x:x+w]
-        self.perimeter = cv2.arcLength(self.contour, True)
+class Piece():
+    def __init__(self, img_orig, img_gray, img_edges, contour):
+        x, y, w, h = cv2.boundingRect(contour)
+        self.img_orig = img_orig[y:y+h, x:x+w]
+        self.img_gray = img_gray[y:y+h, x:x+w]
+        self.img_edges = img_edges[y:y+h, x:x+w]
+        self.img_corners = cv2.cornerHarris(np.float32(self.img_gray), 2, 3, 0.04)
+        self.contour = contour - [x, y]
         self.rotated_rect = cv2.minAreaRect(self.contour)
         self.rotated_box = np.int0(cv2.boxPoints(self.rotated_rect))
-        self.area = self.rotated_rect[1][0] * self.rotated_rect[1][1]
-        cx, cy = self.rotated_rect[0]
-        tx, ty, _ = img_orig.shape
-        i = int(13 * cx // (tx-40))  # account for the border
-        j = int(13 * cy // (ty-40))  # account for the border
-        self.id = chr(ord('A') + i - 1) + str(j)
-
-    def draw_text(self, img, text, dy = 0):
-        cx, cy = self.rotated_rect[0]
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        size = 1.6 # 0.5
-        sx, sy = cv2.getTextSize(text, font, size, 1)[0]
-        cv2.putText(img, text, [int(cx - sx/2), int(cy + dy + sy/2)], font, size, (255, 0, 255), 3, cv2.LINE_AA)
-
-    def draw_contour(self, img):
-        cv2.drawContours(img, [self.contour], -1, (0, 255, 0), 2)
-
-    def draw_contour_approx(self, img):
-        epsilon = 0.02 * self.perimeter
-        contour = cv2.approxPolyDP(self.contour, epsilon, True)
-        cv2.drawContours(img, [contour], -1, (0, 255, 0), 2)
-
-    def draw_contour_convex(self, img):
-        contour = cv2.convexHull(self.contour)
-        cv2.drawContours(img, [contour], -1, (0, 255, 0), 2)
-
-    def draw_straight_rect(self, img):
-        (x, y, w, h) = self.straight_rect
-        cv2.rectangle(img, (x, y), (x+w, y+h), (0, 255, 0), 2)
-        cv2.line(img, (x, y), (x+w, y+h), (0, 255, 0), 1)
-        cv2.line(img, (x+w, y), (x, y+h), (0, 255, 0), 1)
-
-    def draw_rotated_rect(self, img):
-        cv2.drawContours(img, [self.rotated_box], 0, (0, 255, 0), 2)
-
-    def draw_oriented(self, img):
-        (x, y, w, h) = self.straight_rect
         (cx, cy), (sx, sy), angle = self.rotated_rect
-        cx = int(cx)
-        cy = int(cy)
-        d = 40
-        matrix = cv2.getRotationMatrix2D((d, d), angle, 1.0)
-        cv2.warpAffine(img[cy-d:cy+d, cx-d:cx+d], matrix, (2*d, 2*d), img[cy-d:cy+d, cx-d:cx+d])
-        cv2.rectangle(img, (int(cx-sx/2), int(cy-sy/2)), (int(cx+sx/2), int(cy+sy/2)), (0, 255, 0), 2)
-        cv2.rectangle(img, (int(cx-sx/2), int(cy-0.3*sy)), (int(cx-0.3*sx), int(cy+0.3*sy)), (255, 0, 0), 1)
+        self.area = sx * sy
+        #self.lines = cv2.HoughLines(self.img_edges, 1, np.pi / 180, 30, None, 0, 0)
+        #if self.lines is None:   
+        #    self.lines = []
 
-    def draw_polar_line(self, img, rho, theta):
-        (x, y, w, h) = self.straight_rect
-        cos = math.cos(theta)
-        sin = math.sin(theta)
-        x0 = x + cos * rho
-        y0 = y + sin * rho
-        p0 = (int(x0 - 10*sin), int(y0 + 10*cos))
-        p1 = (int(x0 + 10*sin), int(y0 - 10*cos))
-        cv2.line(img, p0, p1, (0, 255, 0), 1, cv2.LINE_AA)
-
-    def draw_lines(self, img, img_edges):
-        (x, y, w, h) = self.straight_rect
-        img_edges = img_edges[y:y+h, x:x+w]
-        lines = cv2.HoughLines(img_edges, 1, np.pi / 180, 30, None, 0, 0)
-        if lines is not None:
-            theta0 = None
-            for line in lines[:2]:
-                rho, theta = line[0]
-                self.draw_polar_line(img, rho, theta)
-                if theta0 is not None:
-                    angle = degrees(theta - theta0) % 180
-                    isSquare = 85 < abs(angle) < 95
-                    if isSquare:
-                        print(f"{self.id} is a square")
-                    break
-                theta0 = theta
-                
-        #lines = cv2.HoughLinesP(img_edges, 2, np.pi / 180, 15, None, 15, 2)
-        #if lines is not None:
-        #    for line in lines:
-        #        x0, y0, x1, y1 = line[0]
-        #        cv2.line(img, (x+x0, y+y0), (x+x1, y+y1), (0, 255, 0), 2, cv2.LINE_AA)
+    def rotate(self):
+        img_orig = cv2.copyMakeBorder(self.img_orig, 20, 20, 20, 20, cv2.BORDER_CONSTANT)
+        (cx, cy), (sx, sy), angle = self.rotated_rect
+        matrix = cv2.getRotationMatrix2D((20 + cx, 20 + cy), angle, 1.0)
+        h, w, _ = img_orig.shape
+        cv2.warpAffine(img_orig, matrix, (w, h), img_orig)
+        if sx > sy:
+            img_orig = cv2.rotate(img_orig, cv2.ROTATE_90_CLOCKWISE)
+        img_gray = cv2.cvtColor(img_orig, cv2.COLOR_BGR2GRAY)
+        img_edges = cv2.Canny(image=img_gray, threshold1=100, threshold2=200)
+        (contours, _) = cv2.findContours(img_edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+        return Piece(img_orig, img_gray, img_edges, contours[0])
 
     #def log_contour(self):
     #    contour = self.contour[-1] + self.contour + self.contour[0]
@@ -146,105 +65,60 @@ class Shape():
     #    print(contour[-1][0])
 
 
-class Inventory():
-    def __init__(self, img_orig, contours):
-        self.img_orig = img_orig
-        self.shapes = [Shape(img_orig, contour) for contour in contours]
-        median_area = statistics.median([shape.area for shape in self.shapes])
-        print(f"Number of detected shapes: {len(self.shapes)}")
-        print(f"Ignore too small or too big shapes")
-        low_area = 0.5 * median_area
-        high_area = 2 * median_area
-        self.shapes = list(filter(lambda shape: low_area < shape.area < high_area, self.shapes))
-        print(f"Number of remaining shapes: {len(self.shapes)}")
+class Solver():
+    def read_pieces(self, filename):
+        img_orig = cv2.imread(filename)
+        img_gray = cv2.cvtColor(img_orig, cv2.COLOR_BGR2GRAY)
+        # img_blur = cv2.blur(img_gray, (3, 3))  # Produces some wrong contours
+        img_edges = cv2.Canny(image=img_gray, threshold1=100, threshold2=200)
+        (contours, _) = cv2.findContours(img_edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+        print(f"Number of detected contours: {len(contours)}")
 
-    def draw_contours(self):
-        img = self.img_orig.copy()
-        for idx, shape in enumerate(self.shapes):
-            shape.draw_contour(img)
+        pieces = [Piece(img_orig, img_gray, img_edges, contour) for contour in contours]
+        median_area = statistics.median([piece.area for piece in pieces])
+        pieces = [piece for piece in pieces if 0.5 < piece.area / median_area < 2]
+        print(f"Contour median area={median_area}, Ignore too small or too big contours")
+        print(f"Number of detected pieces: {len(pieces)}")
+        return pieces
+
+    def rotate_pieces(self, pieces):
+        return [piece.rotate() for piece in pieces]
+
+
+class Display():
+    def show(self, pieces):
+        nb_rows = round(math.sqrt(len(pieces)))
+        nb_cols = math.ceil(len(pieces) / nb_rows)
+        fig = plt.figure(figsize=(7, 7), tight_layout=True)
+        axis = None
+        for idx, piece in enumerate(pieces):
+            axis = fig.add_subplot(nb_rows, nb_cols, idx+1)
+            plt.imshow(self.draw(piece))
+            plt.axis('off')
+        plt.show()
+
+    def draw(self, piece):
+        img = piece.img_orig
+        #cv2.drawContours(img, [piece.rotated_box], 0, (0, 255, 0), 1)
+        #cv2.drawContours(img, [piece.contour], 0, (255, 0, 0), 1)
+        for line in piece.lines[:10]:
+            rho, theta = line[0]
+            self.draw_polar_line(img, rho, theta)
         return img
 
-    def draw_contours_approx(self):
-        img = self.img_orig.copy()
-        for idx, shape in enumerate(self.shapes):
-            shape.draw_contour_approx(img)
-        return img
+    #def draw_polar_line(self, img, rho, theta):
+    #    cos = math.cos(theta)
+    #    sin = math.sin(theta)
+    #    x0 = cos * rho
+    #    y0 = sin * rho
+    #    p0 = (int(x0 - 100*sin), int(y0 + 100*cos))
+    #    p1 = (int(x0 + 100*sin), int(y0 - 100*cos))
+    #    cv2.line(img, p0, p1, (0, 255, 0), 1, cv2.LINE_AA)
 
-    def draw_contours_convex(self):
-        img = self.img_orig.copy()
-        for idx, shape in enumerate(self.shapes):
-            shape.draw_contour_convex(img)
-        return img
 
-    def draw_straight_rects(self):
-        img = self.img_orig.copy()
-        for idx, shape in enumerate(self.shapes):
-            shape.draw_straight_rect(img)
-        return img
+solver = Solver()
+pieces = solver.read_pieces('jigsawsqr.png')
+pieces = solver.rotate_pieces(pieces)
 
-    def draw_lines(self, img_edges):
-        img = self.img_orig.copy()
-        for shape in self.shapes:
-            shape.draw_lines(img, img_edges)
-        return img
-
-    def draw_rotated_rects(self):
-        img = self.img_orig.copy()
-        for idx, shape in enumerate(self.shapes):
-            shape.draw_rotated_rect(img)
-        return img
-
-    def draw_oriented(self):
-        img = self.img_orig.copy()
-        for idx, shape in enumerate(self.shapes):
-            shape.draw_oriented(img)
-            # shape.draw_text(img, str(shape.id))
-        return img
-
-    #def draw_corners(self):
-    #    img = self.img_orig.copy()
-    #    for shape in self.shapes[0:]:
-    #        shape.log_contour()
-    #        (x, y, w, h) = shape.rect
-    #        cv2.rectangle(img, (x, y), (x+w, y+h), (0, 255, 0), 2)
-    #        break
-    #    return img
-
-img_orig = cv2.imread('jigsawsqr.png')  # full image
-border = 20
-img_border = cv2.copyMakeBorder(img_orig, border, border, border, border, cv2.BORDER_CONSTANT)
-img_gray = cv2.cvtColor(img_border, cv2.COLOR_BGR2GRAY)
-# img_blur = cv2.blur(img_gray, (3, 3))  # Produces some wrong contours
-img_edges = cv2.Canny(image=img_gray, threshold1=100, threshold2=200)
-
-(contours, _) = cv2.findContours(img_edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-inventory = Inventory(img_border, contours)
-img_contours = inventory.draw_contours()
-img_contours_approx = inventory.draw_contours_approx()
-img_contours_convex = inventory.draw_contours_convex()
-img_straight_rects = inventory.draw_straight_rects()
-img_rotated_rects = inventory.draw_rotated_rects()
-img_lines = inventory.draw_lines(img_edges)
-#img_oriented = inventory.draw_oriented()
-#img_corners = inventory.draw_corners()
-#img_rotate = inventory.draw_rotate()
-#img_corners = cv2.cornerHarris(np.float32(cv2.cvtColor(img_orig, cv2.COLOR_BGR2GRAY)), 2, 3, 0.04)
-#img_corners = cv2.cornerHarris(np.float32(img_gray), 2, 3, 0.04)
-#img_corners = cv2.dilate(img_corners, None)
-
-d = Display()
-
-#d.add(img_border, 'border')
-#d.add(img_gray, 'gray')
-#d.add(img_edges, 'edges')
-#d.add(img_contours, 'contours')
-#d.add(img_contours_approx, 'contours approx')
-#d.add(img_contours_convex, 'contours convex')
-#d.add(img_straight_rects, 'straight rects')
-#d.add(img_rotated_rects, 'rotated rects')
-d.add(img_lines, 'lines')
-#d.add(img_oriented, 'oriented')
-#d.add(img_rotate, 'rotate')
-#d.add(img_corners, 'corners')
-#d.add(img_sum, 'sum')
-d.show()
+display = Display()
+display.show(pieces[-16:])
