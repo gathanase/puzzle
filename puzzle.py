@@ -179,6 +179,9 @@ class Piece():
 
 
 class Solver():
+    def __init__(self):
+        self.pieces = []
+
     def read_pieces(self, filename):
         print("Detect contours...")
         img_orig = cv2.imread(filename)
@@ -187,29 +190,28 @@ class Solver():
         img_edges = cv2.Canny(image=img_gray, threshold1=100, threshold2=200)
         (contours, _) = cv2.findContours(img_edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
         print(f"Number of detected contours: {len(contours)}")
+        pieces = [Piece(idx, img_orig, img_gray, img_edges, contour) for idx, contour in enumerate(contours)]
 
         print("Ignore very big and very small contours...")
-        pieces = [Piece(idx, img_orig, img_gray, img_edges, contour) for idx, contour in enumerate(contours)]
         median_area = statistics.median([piece.area for piece in pieces])
-        pieces = [piece for piece in pieces if 0.5 < piece.area / median_area < 2]
+        self.pieces = [piece for piece in pieces if 0.5 < piece.area / median_area < 2]
         print(f"Contour median area: {median_area}")
         print(f"Number of detected pieces: {len(pieces)}")
-        return pieces
 
-    def rotate_pieces(self, pieces):
-        return [piece.rotate() for piece in pieces]
+    def rotate_pieces(self):
+        self.pieces = [piece.rotate() for piece in self.pieces]
 
-    def analyze_pieces(self, pieces):
+    def analyze_pieces(self):
         print("Analyze pieces...")
-        pieces = [piece.compute_borders() for piece in pieces]
-        nb_corners = len([piece for piece in pieces if len(piece.borders) == 2])
+        self.pieces = [piece.compute_borders() for piece in self.pieces]
+
+        nb_corners = len([piece for piece in self.pieces if len(piece.borders) == 2])
         print(f"Number of detected corner pieces: {nb_corners}")
-        perimeter = sum([len(piece.borders) for piece in pieces])
+        perimeter = sum([len(piece.borders) for piece in self.pieces])
         print(f"Perimeter: {perimeter}")
         # assert len(corner_pieces) == 4
         # assert perimeter & nb total pieces
         # compute puzzle shape
-        return pieces
 
 
 class Display():
@@ -264,9 +266,9 @@ class Display():
         cv2.line(img, p0, p1, (0, 255, 0), 2, cv2.LINE_AA)
 
 solver = Solver()
-pieces = solver.read_pieces('jigsawsqr.png')
-pieces = solver.rotate_pieces(pieces)
-pieces = solver.analyze_pieces(pieces)
+solver.read_pieces('jigsawsqr.png')
+solver.rotate_pieces()
+solver.analyze_pieces()
 
 #display = Display()
 #display.show(pieces)
