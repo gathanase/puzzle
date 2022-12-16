@@ -4,11 +4,11 @@ Puzzle pieces provided by https://www.reddit.com/r/StuffMadeHere/comments/zaq7f7
 
 Steps:
 * read image DONE
-* compute edges DONE
 * compute contours DONE
-* detect borders
-* orient shapes DONE (need better orient borders)
-* compute 4 corners
+* compute pieces DONE
+* rotate pieces DONE
+* detect borders ON GOING
+* compute 4 corners ON GOING
 * compute 4 edge fingerprint
 * compute groups of fingerprints
 * compute puzzle assembly
