@@ -90,27 +90,19 @@ class Piece():
 
     def compute_borders(self):
         h, w, _ = self.img_orig.shape
-        pTop= 0
-        pBottom= 0
-        pLeft= 0
-        pRight= 0
+        borders = []  # probability, direction, rho, thetaRadians
         for line in self.lines[:2]:
             rho, thetaRadians = line[0]
             theta = math.degrees(thetaRadians)
             pVertical = bell(0.01, diff_angle((theta+90) % 180, 0), 90)
             pHorizontal = bell(0.01, diff_angle(theta % 180, 90), 0)
-            pTop = max(pTop, pHorizontal * bell(100, rho/h, 0))
-            pBottom = max(pBottom, pHorizontal * bell(100, rho/h, 1))
-            pLeft = max(pLeft, pVertical * bell(100, abs(rho/w), 0))
-            pRight = max(pRight, pVertical * bell(100, abs(rho/w), 1))
-        threshold = 0.2
-        borders = {
-            'top': pTop > threshold,
-            'bottom': pBottom > threshold,
-            'left': pLeft > threshold,
-            'right': pRight > threshold
-        }
-        self.borders = set([k for k, v in borders.items() if v])
+
+            borders.append((pHorizontal * bell(100, abs(rho/h), 0), 'top', rho, thetaRadians))
+            borders.append((pHorizontal * bell(100, abs(rho/h), 1), 'bottom', rho, thetaRadians))
+            borders.append((pVertical * bell(100, abs(rho/w), 0), 'left', rho, thetaRadians))
+            borders.append((pVertical * bell(100, abs(rho/w), 1), 'right', rho, thetaRadians))
+
+        self.borders = set([k for p, k, rho, thetaRadians in borders if p > 0.2])
         return self
 
 
