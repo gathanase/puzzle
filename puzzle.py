@@ -116,13 +116,13 @@ class Piece():
 
 
     def compute_corners(self):
-        points = np.zeros((len(self.contour), 2))
         (cx, cy), (sx, sy), angle = self.rotated_rect
+        polarPoints = []
         for idx, p in enumerate(self.contour):
             x, y = p[0]
-            d = math.sqrt((x-cx)**2 + (y-cy)**2)
-            points[idx] = (angle_vector((x-cx, y-cy)), d)
-        self.corners = [points[0], points[100]]
+            distance = math.sqrt((x-cx)**2 + (y-cy)**2)
+            theta = angle_vector((x-cx, y-cy))
+            polarPoints.append([theta, distance])
         return self
 
 
@@ -202,17 +202,17 @@ class Solver():
 
 class Display():
     def show(self, pieces):
-        nb_tiles = len(pieces) * 2
+        nb_tiles = len(pieces) * 1
         nb_cols = round(math.sqrt(nb_tiles))
         nb_cols = nb_cols + nb_cols % 2
         nb_rows = math.ceil(nb_tiles / nb_cols)
         fig = plt.figure(figsize=(7, 7), tight_layout=True)
         for idx, piece in enumerate(pieces):
-            fig.add_subplot(nb_rows, nb_cols, 2*idx+1)
-            self.draw(plt, piece)
-            plt.axis('off')
-            fig.add_subplot(nb_rows, nb_cols, 2*idx+2)
+            #fig.add_subplot(nb_rows, nb_cols, 1*idx+1)
             self.plot(plt, piece)
+            #plt.axis('off')
+            fig.add_subplot(nb_rows, nb_cols, 1*idx+1)
+            self.draw(plt, piece)
             plt.axis('off')
         plt.show()
 
@@ -224,9 +224,9 @@ class Display():
         for p in np.concatenate((piece.contour, piece.contour[:1]), axis=0):
             x, y = p[0]
             distance = math.sqrt((x-cx)**2 + (y-cy)**2)
-            theta = int(angle_vector((x-cx, y-cy)) % 360)
-            if old_theta is not None:
-                for t in range(math.ceil(min(theta, old_theta)), math.floor(max(theta, old_theta))):
+            theta = angle_vector((x-cx, y-cy)) % 360
+            if old_theta is not None and theta != old_theta:
+                for t in range(math.ceil(min(theta, old_theta)), math.floor(max(theta, old_theta) + 1)):
                     dt = old_distance + (t-old_theta)/(theta-old_theta) * (distance-old_distance)
                     angle2dist[t] = max(angle2dist.get(t, 0), dt)
             old_theta = theta
@@ -234,9 +234,17 @@ class Display():
         points = list(angle2dist.items())
         points.sort()
         
-        plt.plot([x for x, y in points], [y for x, y in points])
-        peaks = find_peaks([y for x, y in points])
-        plt.plot(peaks[0], [points[x][1] for x in peaks[0]], 'rx')
+        #plt.plot([x for x, y in points], [y for x, y in points])
+        peaks = find_peaks([y for x, y in points], prominence=2)
+
+        corners = []
+        for idx in peaks[0]:
+            theta, distance = points[idx]
+            x = cx + distance * math.cos(math.radians(theta))
+            y = cy + distance * math.sin(math.radians(theta))
+            corners.append((x, y))
+        piece.bla_corners = corners
+        #plt.plot([points[x][0] for x in peaks[0]], [points[x][1] for x in peaks[0]], 'rx')
         # plt.plot([[x, points[x]] for x in peaks[0]], 'rx')
         # plt.axvline(-90, 0, 100, c='r')
         # plt.axvline(90, 0, 100, c='r')
@@ -246,10 +254,6 @@ class Display():
         # cv2.drawMarker(img, piece.contour[0][0], (0, 255, 0))
         (cx, cy), (sx, sy), angle = piece.rotated_rect
         cv2.drawMarker(img, (int(cx), int(cy)), (255, 0, 0))
-        #for point in piece.corners:
-        #    x, y = point
-        #    print(x, y, cx, cy)
-        #    cv2.drawMarker(img, (int(x), int(y)), (0, 255, 0))
         # for _, _, rho, theta in piece.borders:
         #     self.draw_polar_line(img, rho, theta)
         # cv2.drawMarker(img, piece.topLeft, (0, 255, 0), markerSize=1)
@@ -261,12 +265,15 @@ class Display():
         #cv2.drawContours(img, [cv2.approxPolyDP(piece.contour, 6, True)], 0, (0, 255, 0), 1)
         #cv2.drawContours(img, [piece.rotated_box], 0, (0, 255, 0), 1)
         #cv2.drawContours(img, [piece.contour], 0, (255, 0, 0), 1)
-
+        for point in piece.bla_corners:
+            x, y = point
+        #    print(x, y, cx, cy)
+            cv2.drawMarker(img, (int(x), int(y)), (255, 180, 0), markerSize=4)
         #h, w, _ = img.shape
         #dx = int(0.2 * w)
         #dy = int(0.1 * h)
         #cv2.rectangle(img, (dx, 0), (w-dx, dy), (0, 255, 0), 1)
-        self.draw_text(img, str(piece.idx))
+        #self.draw_text(img, str(piece.idx))
         plt.imshow(img)
 
     def draw_text(self, img, text):
@@ -289,9 +296,10 @@ class Display():
 solver = Solver()
 solver.read_pieces('jigsawsqr.png')
 solver.rotate_pieces()
-solver.analyze_pieces()
+# solver.analyze_pieces()
 
-pieces = solver.pieces[0:1]
+# problem piece26 contour not closed
+pieces = solver.pieces[128:]
 
 # pieces_id = dict([(piece.idx, piece) for piece in pieces])
 # pieces_id[22].topLeft = (0, 13)
