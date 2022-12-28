@@ -22,17 +22,6 @@ def angle_vector(v):
     angle = math.degrees(math.atan2(y, x)) % 360
     return angle if 0 <= angle <= 180 else angle - 360
 
-
-#def angle3p(p1, p2, p3):
-#    angle1 = angle2p(p1, p2)
-#    angle2 = angle2p(p2, p3)
-#    angle = (angle2 - angle1) % 360
-#    return angle if 0 <= angle <= 180 else angle - 360
-
-
-def sigmoid(k, x, x0):
-    return 1 / (1 + math.exp(-k * (x-x0)))
-
 def bell(k, x, x0):
     return math.exp(-k * (x-x0)**2)
 
@@ -62,6 +51,7 @@ class Piece():
         if self.lines is None:
             self.lines = []
 
+
     def rotate(self):
         img_orig = cv2.copyMakeBorder(self.img_orig, 20, 20, 20, 20, cv2.BORDER_CONSTANT)
         (cx, cy), (sx, sy), angle = self.rotated_rect
@@ -75,92 +65,77 @@ class Piece():
         (contours, _) = cv2.findContours(img_edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
         return Piece(self.idx, img_orig, img_gray, img_edges, contours[0])
 
-#        if len(self.lines) > 0:
-#            rho, thetaRadians = self.lines[0][0]
-#            theta = math.degrees(thetaRadians)
-#            borderTop = pRho(rho/h, 0) * pTheta(theta, 90)
-#            borderBottom = pRho(rho/h, 1) * pTheta(theta, 90)
-#            borderLeft = pRho(rho/w, 0) * pTheta(theta, 0)
-#            borderRight = pRho(rho/w, 1) * pTheta(theta, 0)
-#            print(f"T {borderTop}, B {borderBottom}, L {borderLeft}, R {borderRight}")
-            # if abs(theta) < math.radians(20) and rho < 20
-            #print(rho/h, rho/w, math.degrees(theta))
-
 
     def compute_borders(self):
-        borders = []  # (direction, probability, rho, thetaRadians)]
+        # This is quite accurate but there are some false positives along the long edge
+        # We could compute the longest streak to remove these false positives
+        self.is_border_top = False
+        self.is_border_bottom = False
+        self.is_likely_border_left = False
+        self.is_likely_border_right = False
+
         for line in self.lines[:2]:
             rho, thetaRadians = line[0]
             theta = math.degrees(thetaRadians)
             pVertical = bell(0.01, diff_angle((theta+90) % 180, 0), 90)
             pHorizontal = bell(0.01, diff_angle(theta % 180, 90), 0)
 
-            borders.append(('top', pHorizontal * bell(100, abs(rho/self.h), 0), rho, thetaRadians))
-            borders.append(('bottom', pHorizontal * bell(100, abs(rho/self.h), 1), rho, thetaRadians))
-            borders.append(('left', pVertical * bell(100, abs(rho/self.w), 0), rho, thetaRadians))
-            borders.append(('right', pVertical * bell(100, abs(rho/self.w), 1), rho, thetaRadians))
-
-        borders = [border for border in borders if border[1] > 0.2] 
-        if self.idx == 25:
-            print(borders)
-
-        #for border in borders:
-        #    ranges = []  # ((x0, y0), (x1, y1))
-        #    line_start = None
-        #    for idx in range(len(self.contour)):
-        #        p = self.contour[idx][0]
-        #        if p
-
-        self.borders = borders
-        return self
+            if pHorizontal * bell(100, abs(rho/self.h), 0) > 0.2:
+                self.is_border_top = True
+            if pHorizontal * bell(100, abs(rho/self.h), 1) > 0.2:
+                self.is_border_bottom = True
+            if pVertical * bell(100, abs(rho/self.w), 0) > 0.2:
+                self.is_likely_border_left = True
+            if pVertical * bell(100, abs(rho/self.w), 1) > 0.2:
+                self.is_likely_border_right = True
 
 
     def compute_corners(self):
         (cx, cy), (sx, sy), angle = self.rotated_rect
-        polarPoints = []
-        for idx, p in enumerate(self.contour):
+        # Fix corner detection for pieces with top or bottom borders
+        if self.is_border_top:
+            cy = cy - 0.1 * sy
+        if self.is_border_bottom:
+            cy = cy + 0.1 * sy
+
+        # Compute the distance from cx, cy to each degree
+        # This is a simple solution to get the max distance for each angle
+        angle2dist = {}  # key=int angle degrees, value=distance from cx, cy
+        old_theta = None
+        old_distance = None
+        for p in np.concatenate((self.contour, self.contour[:1]), axis=0):   # one more point for the linear interpolation
             x, y = p[0]
             distance = math.sqrt((x-cx)**2 + (y-cy)**2)
-            theta = angle_vector((x-cx, y-cy))
-            polarPoints.append([theta, distance])
-        return self
+            theta = angle_vector((x-cx, y-cy)) % 360
+            if old_theta is not None and theta != old_theta:
+                # linear interpolation for intermediate angles
+                for t in range(math.ceil(min(theta, old_theta)), math.floor(max(theta, old_theta) + 1)):
+                    dt = old_distance + (t-old_theta)/(theta-old_theta) * (distance-old_distance)
+                    angle2dist[t] = max(angle2dist.get(t, 0), dt)
+            old_theta = theta
+            old_distance = distance
+        angle_dist = sorted(angle2dist.items())
+        peaks = find_peaks([distance for theta, distance in angle_dist], prominence=2)
+
+        peak_points = [] # (x, y)
+        for idx in peaks[0]:
+            theta, distance = angle_dist[idx]
+            x = cx + distance * math.cos(math.radians(theta))
+            y = cy + distance * math.sin(math.radians(theta))
+            peak_points.append((int(x), int(y)))
+
+        def distance_cy(p):
+            return abs(p[1] - cy)
+
+        self.corner_top_left = min([(x, y) for x, y in peak_points if x < sx/2 and y < sy/2], key=distance_cy)
+        self.corner_top_right = min([(x, y) for x, y in peak_points if x > sx/2 and y < sy/2], key=distance_cy)
+        self.corner_bottom_left = min([(x, y) for x, y in peak_points if x < sx/2 and y > sy/2], key=distance_cy)
+        self.corner_bottom_right = min([(x, y) for x, y in peak_points if x > sx/2 and y > sy/2], key=distance_cy)
 
 
-    # def compute_corners(self):
-    #     def p_angle(k, angle, angle_ref):
-    #         diff = diff_angle(angle, angle_ref)
-    #         return {-45: k, 0: 1, 45: k}.get(diff, 0)
-
-    #     h, w, _ = self.img_orig.shape
-    #     contour = np.concatenate((self.contour[-2:], self.contour, self.contour[:2]))
-    #     pTopLeft = []  # list of (proba, (x, y))
-    #     pTopRight = []  # list of (proba, (x, y))
-    #     pBottomLeft = []  # list of (proba, (x, y))
-    #     pBottomRight = []  # list of (proba, (x, y))
-    #     for idx in range(2, len(contour) - 2):
-    #         p1, p2, p3 = map(lambda p: p[0], contour[idx-1:idx+2])
-    #         angle1 = angle_vector(p2 - p1)
-    #         angle2 = angle_vector(p3 - p2)
-    #         angle = (angle2 - angle1) % 360
-    #         angle = angle if 0 <= angle <= 180 else angle - 360
-    #         x, y = p2
-
-    #         pTop = sigmoid(-10, y/h, 0.21)
-    #         pBottom = sigmoid(10, y/h, 0.79)
-    #         pLeft = sigmoid(-10, x/w, 0.06)
-    #         pRight = sigmoid(10, x/w, 0.94)
-    #         pCorner = p_angle(0.6, angle, -90)
-
-    #         pTopLeft.append((pTop * pLeft * p_angle(0.6, angle1, 180) * pCorner, (x, y)))
-    #         pTopRight.append((pTop * pRight * p_angle(0.6, angle1, -90) * pCorner, (x, y)))
-    #         pBottomLeft.append((pBottom * pLeft * p_angle(0.6, angle1, 90) * pCorner, (x, y)))
-    #         pBottomRight.append((pBottom * pRight * p_angle(0.6, angle1, 0) * pCorner, (x, y)))
-
-    #     self.topLeft = max(pTopLeft)[1]
-    #     self.topRight = max(pTopRight)[1]
-    #     self.bottomLeft = max(pBottomLeft)[1]
-    #     self.bottomRight = max(pBottomRight)[1]
-    #     return self
+    def analyze(self):
+        self.compute_borders()
+        self.compute_corners()
 
 
 class Solver():
@@ -188,13 +163,13 @@ class Solver():
 
     def analyze_pieces(self):
         print("Analyze pieces...")
-        self.pieces = [piece.compute_borders() for piece in self.pieces]
-        self.pieces = [piece.compute_corners() for piece in self.pieces]
+        for piece in self.pieces:
+            piece.analyze()
 
-        nb_corners = len([piece for piece in self.pieces if len(piece.borders) == 2])
-        print(f"Number of detected corner pieces: {nb_corners}")
-        perimeter = sum([len(piece.borders) for piece in self.pieces])
-        print(f"Perimeter: {perimeter}")
+        # nb_corners = len([piece for piece in self.pieces if len(piece.borders) == 2])
+        # print(f"Number of detected corner pieces: {nb_corners}")
+        # perimeter = sum([len(piece.borders) for piece in self.pieces])
+        # print(f"Perimeter: {perimeter}")
         # assert len(corner_pieces) == 4
         # assert perimeter & nb total pieces
         # compute puzzle shape
@@ -208,72 +183,23 @@ class Display():
         nb_rows = math.ceil(nb_tiles / nb_cols)
         fig = plt.figure(figsize=(7, 7), tight_layout=True)
         for idx, piece in enumerate(pieces):
-            #fig.add_subplot(nb_rows, nb_cols, 1*idx+1)
-            self.plot(plt, piece)
-            #plt.axis('off')
             fig.add_subplot(nb_rows, nb_cols, 1*idx+1)
             self.draw(plt, piece)
             plt.axis('off')
         plt.show()
 
-    def plot(self, plt, piece):
-        (cx, cy), (sx, sy), angle = piece.rotated_rect
-        angle2dist = {}  # key=int angle degrees, value=distance from cx, cy
-        old_theta = None
-        old_distance = None
-        for p in np.concatenate((piece.contour, piece.contour[:1]), axis=0):
-            x, y = p[0]
-            distance = math.sqrt((x-cx)**2 + (y-cy)**2)
-            theta = angle_vector((x-cx, y-cy)) % 360
-            if old_theta is not None and theta != old_theta:
-                for t in range(math.ceil(min(theta, old_theta)), math.floor(max(theta, old_theta) + 1)):
-                    dt = old_distance + (t-old_theta)/(theta-old_theta) * (distance-old_distance)
-                    angle2dist[t] = max(angle2dist.get(t, 0), dt)
-            old_theta = theta
-            old_distance = distance
-        points = list(angle2dist.items())
-        points.sort()
-        
-        #plt.plot([x for x, y in points], [y for x, y in points])
-        peaks = find_peaks([y for x, y in points], prominence=2)
-
-        corners = []
-        for idx in peaks[0]:
-            theta, distance = points[idx]
-            x = cx + distance * math.cos(math.radians(theta))
-            y = cy + distance * math.sin(math.radians(theta))
-            corners.append((x, y))
-        piece.bla_corners = corners
-        #plt.plot([points[x][0] for x in peaks[0]], [points[x][1] for x in peaks[0]], 'rx')
-        # plt.plot([[x, points[x]] for x in peaks[0]], 'rx')
-        # plt.axvline(-90, 0, 100, c='r')
-        # plt.axvline(90, 0, 100, c='r')
-
     def draw(self, plt, piece):
         img = piece.img_orig
-        # cv2.drawMarker(img, piece.contour[0][0], (0, 255, 0))
-        (cx, cy), (sx, sy), angle = piece.rotated_rect
-        cv2.drawMarker(img, (int(cx), int(cy)), (255, 0, 0))
-        # for _, _, rho, theta in piece.borders:
-        #     self.draw_polar_line(img, rho, theta)
-        # cv2.drawMarker(img, piece.topLeft, (0, 255, 0), markerSize=1)
-        # cv2.drawMarker(img, piece.topRight, (0, 255, 0), markerSize=1)
-        # cv2.drawMarker(img, piece.bottomLeft, (0, 255, 0), markerSize=1)
-        # cv2.drawMarker(img, piece.bottomRight, (0, 255, 0), markerSize=1)
-        #for p in piece.contour:
-        #    cv2.drawMarker(img, p[0], (0, 255, 0), markerSize=1)
-        #cv2.drawContours(img, [cv2.approxPolyDP(piece.contour, 6, True)], 0, (0, 255, 0), 1)
+        # (cx, cy), (sx, sy), angle = piece.rotated_rect
+        # cv2.drawMarker(img, (int(cx), int(cy)), (255, 0, 0))
+        # for line in piece.lines[:1]:
+        #     rho, thetaRadians = line[0]
+        #     self.draw_polar_line(img, rho, thetaRadians)
         #cv2.drawContours(img, [piece.rotated_box], 0, (0, 255, 0), 1)
         #cv2.drawContours(img, [piece.contour], 0, (255, 0, 0), 1)
-        for point in piece.bla_corners:
-            x, y = point
-        #    print(x, y, cx, cy)
-            cv2.drawMarker(img, (int(x), int(y)), (255, 180, 0), markerSize=4)
-        #h, w, _ = img.shape
-        #dx = int(0.2 * w)
-        #dy = int(0.1 * h)
-        #cv2.rectangle(img, (dx, 0), (w-dx, dy), (0, 255, 0), 1)
-        #self.draw_text(img, str(piece.idx))
+        cv2.line(img, piece.corner_top_left, piece.corner_bottom_right, (0, 255, 0), 1, cv2.LINE_AA)
+        cv2.line(img, piece.corner_top_right, piece.corner_bottom_left, (0, 255, 0), 1, cv2.LINE_AA)
+        self.draw_text(img, str(piece.idx))
         plt.imshow(img)
 
     def draw_text(self, img, text):
@@ -296,22 +222,9 @@ class Display():
 solver = Solver()
 solver.read_pieces('jigsawsqr.png')
 solver.rotate_pieces()
-# solver.analyze_pieces()
+solver.analyze_pieces()
 
-# problem piece26 contour not closed
-pieces = solver.pieces[128:]
-
-# pieces_id = dict([(piece.idx, piece) for piece in pieces])
-# pieces_id[22].topLeft = (0, 13)
-# print(dict([(piece.idx, (piece.topRight, piece.bottomRight, piece.topLeft, piece.bottomLeft)) for piece in pieces]))
-# print(sum([piece.topRight[0]/piece.w for piece in pieces])/len(pieces))
-# print(sum([piece.topRight[1]/piece.h for piece in pieces])/len(pieces))
-# print(sum([piece.topLeft[0]/piece.w for piece in pieces])/len(pieces))
-# print(sum([piece.topLeft[1]/piece.h for piece in pieces])/len(pieces))
-# print(sum([piece.bottomRight[0]/piece.w for piece in pieces])/len(pieces))
-# print(sum([piece.bottomRight[1]/piece.h for piece in pieces])/len(pieces))
-# print(sum([piece.bottomLeft[0]/piece.w for piece in pieces])/len(pieces))
-# print(sum([piece.bottomLeft[1]/piece.h for piece in pieces])/len(pieces))
+pieces = [piece for piece in solver.pieces if piece.is_border_top or piece.is_border_bottom]
 
 display = Display()
 display.show(pieces)
