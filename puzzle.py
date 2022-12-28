@@ -49,7 +49,7 @@ class Piece():
         self.rotated_rect = cv2.minAreaRect(self.contour)
         self.rotated_box = np.int0(cv2.boxPoints(self.rotated_rect))
         (cx, cy), (sx, sy), angle = self.rotated_rect
-        self.area = sx * sy
+        self.area = np.sum(self.img_gray > 0.6)
         self.lines = cv2.HoughLines(self.img_edges, 1, np.pi / 180, 10, None, 0, 0)
         if self.lines is None:
             self.lines = []
@@ -173,7 +173,7 @@ class Solver():
         median_area = statistics.median([piece.area for piece in pieces])
         self.pieces = [piece for piece in pieces if 0.5 < piece.area / median_area < 2]
         print(f"Contour median area: {median_area}")
-        print(f"Number of detected pieces: {len(pieces)}")
+        print(f"Number of detected pieces: {len(self.pieces)}")
 
     def rotate_pieces(self):
         self.pieces = [piece.rotate() for piece in self.pieces]
