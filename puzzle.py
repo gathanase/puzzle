@@ -31,6 +31,9 @@ def diff_angle(angle, angle_ref):
         diff -= 360
     return diff
 
+def distance(p0, p1):
+    return (p0[0] - p1[0])**2 + (p0[1] - p1[1])**2
+
 
 class Piece():
     def __init__(self, idx, img_orig, img_gray, img_edges, contour):
@@ -133,9 +136,23 @@ class Piece():
         self.corner_bottom_right = min([(x, y) for x, y in peak_points if x > sx/2 and y > sy/2], key=distance_cy)
 
 
+    def compute_edges(self):
+        # find the contour point closest to each detected corners
+        index_top_left = min([(distance(p[0], self.corner_top_left), idx) for idx, p in enumerate(self.contour)])[1]
+        index_top_right = min([(distance(p[0], self.corner_top_right), idx) for idx, p in enumerate(self.contour)])[1]
+        index_bottom_left = min([(distance(p[0], self.corner_bottom_left), idx) for idx, p in enumerate(self.contour)])[1]
+        index_bottom_right = min([(distance(p[0], self.corner_bottom_right), idx) for idx, p in enumerate(self.contour)])[1]
+
+        # we always have index_top_left < index_bottom_left < index_bottom_right < index_top_right
+        self.points_left = self.contour[index_top_left:index_bottom_left]
+        self.points_bottom = self.contour[index_bottom_left:index_bottom_right]
+        self.points_right = self.contour[index_bottom_right:index_top_right]
+        self.points_top = np.concatenate([self.contour[index_top_right:], self.contour[:index_top_left]])
+
     def analyze(self):
         self.compute_borders()
         self.compute_corners()
+        self.compute_edges()
 
 
 class Solver():
@@ -197,8 +214,16 @@ class Display():
         #     self.draw_polar_line(img, rho, thetaRadians)
         #cv2.drawContours(img, [piece.rotated_box], 0, (0, 255, 0), 1)
         #cv2.drawContours(img, [piece.contour], 0, (255, 0, 0), 1)
-        cv2.line(img, piece.corner_top_left, piece.corner_bottom_right, (0, 255, 0), 1, cv2.LINE_AA)
-        cv2.line(img, piece.corner_top_right, piece.corner_bottom_left, (0, 255, 0), 1, cv2.LINE_AA)
+        #cv2.line(img, piece.corner_top_left, piece.corner_bottom_right, (0, 255, 0), 1, cv2.LINE_AA)
+        #cv2.line(img, piece.corner_top_right, piece.corner_bottom_left, (0, 255, 0), 1, cv2.LINE_AA)
+        for p in piece.points_top:
+            cv2.drawMarker(img, p[0], (255, 0, 0), markerSize=1)
+        for p in piece.points_bottom:
+            cv2.drawMarker(img, p[0], (0, 255, 0), markerSize=1)
+        for p in piece.points_left:
+            cv2.drawMarker(img, p[0], (255, 255, 0), markerSize=1)
+        for p in piece.points_right:
+            cv2.drawMarker(img, p[0], (0, 0, 255), markerSize=1)
         self.draw_text(img, str(piece.idx))
         plt.imshow(img)
 
@@ -218,6 +243,7 @@ class Display():
         p0 = (int(x0 - 100*sin), int(y0 + 100*cos))
         p1 = (int(x0 + 100*sin), int(y0 - 100*cos))
         cv2.line(img, p0, p1, (0, 255, 0), 1, cv2.LINE_AA)
+
 
 solver = Solver()
 solver.read_pieces('jigsawsqr.png')
