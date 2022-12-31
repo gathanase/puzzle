@@ -171,9 +171,17 @@ class Edge():
         self.piece = piece
         self.contour = piece.contour
         if idx1 > idx0:
-            self.points = self.contour[idx0:idx1]
+            points = self.contour[idx0:idx1]
         else:
-            self.points = np.concatenate([self.contour[idx0:], self.contour[:idx1]])
+            points = np.concatenate([self.contour[idx0:], self.contour[:idx1]])
+        self.p0 = points[0][0]
+        self.p1 = points[-1][0]
+        self.arcLength = cv2.arcLength(points, closed=False)
+        self.straightLength = math.sqrt(distance(self.p0, self.p1))
+        self.points = points
+        self.angle = angle_vector(self.p1 - self.p0)
+        self.cx, self.cy = (self.p0 + self.p1) / 2
+        print(self.p0, self.p1, self.angle, (self.cx, self.cy))
 
 
 class Solver():
@@ -270,11 +278,13 @@ solver.read_pieces('jigsawsqr.png')
 solver.rotate_pieces()
 solver.analyze_pieces()
 
-# pieces = solver.pieces
-pieces = [piece for piece in solver.pieces if piece.is_border_top or piece.is_border_bottom]
+pieces = solver.pieces
+# pieces = [piece for piece in solver.pieces if piece.is_border_top or piece.is_border_bottom]
 # pieces = [piece for piece in solver.pieces if not (piece.is_border_top or piece.is_border_bottom)]
 # pieces = [piece for piece in solver.pieces if piece.idx in [11, 41]]
 
-page = 1
+pieces.sort(key=lambda piece: min([edge.arcLength / edge.straightLength for edge in piece.edges]))
+
+page = 3
 display = Display()
 display.show(pieces[(page - 1)*48:page*48])
