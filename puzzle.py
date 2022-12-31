@@ -52,7 +52,7 @@ class Piece():
         self.contour = contour - [x, y]
         self.rotated_rect = cv2.minAreaRect(self.contour)
         self.rotated_box = np.int0(cv2.boxPoints(self.rotated_rect))
-        (cx, cy), (sx, sy), angle = self.rotated_rect
+        (self.cx, self.cy), (self.sx, self.sy), self.angle = self.rotated_rect
         self.area = cv2.contourArea(self.contour)
         self.lines = cv2.HoughLines(self.img_edges, 2, np.pi / 180, 30, None, 0, 0)
         if self.lines is None:
@@ -61,11 +61,10 @@ class Piece():
 
     def rotate(self):
         img_orig = cv2.copyMakeBorder(self.img_orig, 20, 20, 20, 20, cv2.BORDER_CONSTANT)
-        (cx, cy), (sx, sy), angle = self.rotated_rect
-        matrix = cv2.getRotationMatrix2D((20 + cx, 20 + cy), angle, 1.0)
+        matrix = cv2.getRotationMatrix2D((20 + self.cx, 20 + self.cy), self.angle, 1.0)
         h, w = img_orig.shape[:2]
         cv2.warpAffine(img_orig, matrix, (w, h), img_orig)
-        if sx > sy:
+        if self.sx > self.sy:
             img_orig = cv2.rotate(img_orig, cv2.ROTATE_90_CLOCKWISE)
         img_gray = cv2.cvtColor(img_orig, cv2.COLOR_BGR2GRAY)
         _, img_binary = cv2.threshold(img_gray, 127, 255, cv2.THRESH_BINARY)
@@ -99,22 +98,18 @@ class Piece():
 
 
     def compute_corners(self):
-        (cx, cy), (sx, sy), angle = self.rotated_rect
         # Fix corner detection for pieces with top or bottom borders
-        if self.is_border_top:
-            cy = cy - 0.1 * sy
-        if self.is_border_bottom:
-            cy = cy + 0.1 * sy
+        dy = 0.1 * self.sy * (self.is_border_bottom - self.is_border_top)
 
-        # Compute the distance from cx, cy to each degree
+        # Compute the distance from cx, cy+dy to each degree
         # This is a simple solution to get the max distance for each angle
         angle2dist = {}  # key=int angle degrees, value=distance from cx, cy
         old_theta = None
         old_distance = None
         for p in np.concatenate((self.contour, self.contour[:1]), axis=0):   # one more point for the linear interpolation
             x, y = p[0]
-            distance = math.sqrt((x-cx)**2 + (y-cy)**2)
-            theta = angle_vector((x-cx, y-cy)) % 360
+            distance = math.sqrt((x-self.cx)**2 + (y-self.cy-dy)**2)
+            theta = angle_vector((x-self.cx, y-self.cy-dy)) % 360
             if old_theta is not None and theta != old_theta:
                 # linear interpolation for intermediate angles
                 for t in range(math.ceil(min(theta, old_theta)), math.floor(max(theta, old_theta) + 1)):
@@ -128,17 +123,18 @@ class Piece():
         peak_points = [] # (x, y)
         for idx in peaks[0]:
             theta, distance = angle_dist[idx]
-            x = cx + distance * math.cos(math.radians(theta))
-            y = cy + distance * math.sin(math.radians(theta))
+            x = self.cx + distance * math.cos(math.radians(theta))
+            y = self.cy + dy + distance * math.sin(math.radians(theta))
             peak_points.append((int(x), int(y)))
 
         def distance_cy(p):
-            return abs(p[1] - cy)
+            return abs(p[1] - self.cy - dy)
 
-        self.corner_top_left = min([(x, y) for x, y in peak_points if x < sx/2 and y < sy/2], key=distance_cy)
-        self.corner_top_right = min([(x, y) for x, y in peak_points if x > sx/2 and y < sy/2], key=distance_cy)
-        self.corner_bottom_left = min([(x, y) for x, y in peak_points if x < sx/2 and y > sy/2], key=distance_cy)
-        self.corner_bottom_right = min([(x, y) for x, y in peak_points if x > sx/2 and y > sy/2], key=distance_cy)
+        peak_points.sort(key=lambda p: abs(p[1] - self.cy - dy))
+        self.corner_top_left = [(x, y) for x, y in peak_points if x < self.sx/2 and y < self.sy/2][0]
+        self.corner_top_right = [(x, y) for x, y in peak_points if x > self.sx/2 and y < self.sy/2][0]
+        self.corner_bottom_left = [(x, y) for x, y in peak_points if x < self.sx/2 and y > self.sy/2][0]
+        self.corner_bottom_right = [(x, y) for x, y in peak_points if x > self.sx/2 and y > self.sy/2][0]
 
 
     def compute_edges(self):
