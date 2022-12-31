@@ -145,10 +145,13 @@ class Piece():
         index_bottom_right = min([(distance(p[0], self.corner_bottom_right), idx) for idx, p in enumerate(self.contour)])[1]
 
         # we always have index_top_left < index_bottom_left < index_bottom_right < index_top_right
-        self.points_left = self.contour[index_top_left:index_bottom_left+1]
-        self.points_bottom = self.contour[index_bottom_left:index_bottom_right+1]
-        self.points_right = self.contour[index_bottom_right:index_top_right+1]
-        self.points_top = np.concatenate([self.contour[index_top_right:], self.contour[:index_top_left+1]])
+        self.edges = [
+            Edge(self, index_top_left, index_bottom_left+1),
+            Edge(self, index_bottom_left, index_bottom_right+1),
+            Edge(self, index_bottom_right, index_top_right+1),
+            Edge(self, index_top_right, index_top_left+1)
+        ]
+
 
     def compute_fingerprint(self, contour):
         pass
@@ -161,6 +164,16 @@ class Piece():
         self.compute_corners()
         self.compute_edges()
         # self.compute_fingerprint(self.points_left)
+
+
+class Edge():
+    def __init__(self, piece, idx0, idx1):
+        self.piece = piece
+        self.contour = piece.contour
+        if idx1 > idx0:
+            self.points = self.contour[idx0:idx1]
+        else:
+            self.points = np.concatenate([self.contour[idx0:], self.contour[:idx1]])
 
 
 class Solver():
@@ -227,14 +240,10 @@ class Display():
         # cv2.drawContours(img, [piece.contour], 0, (255, 0, 0), 1)
         # cv2.line(img, piece.corner_top_left, piece.corner_bottom_right, (0, 255, 0), 1, cv2.LINE_AA)
         # cv2.line(img, piece.corner_top_right, piece.corner_bottom_left, (0, 255, 0), 1, cv2.LINE_AA)
-        for p in piece.points_top:
-            cv2.drawMarker(img, p[0], (255, 0, 0), markerSize=2)
-        for p in piece.points_bottom:
-            cv2.drawMarker(img, p[0], (0, 255, 0), markerSize=2)
-        for p in piece.points_left:
-            cv2.drawMarker(img, p[0], (255, 255, 0), markerSize=2)
-        for p in piece.points_right:
-            cv2.drawMarker(img, p[0], (0, 0, 255), markerSize=2)
+        color = [(255, 0, 0), (0, 255, 0), (255, 255, 0), (0, 0, 255)]
+        for idx, edge in enumerate(piece.edges):
+            for p in edge.points:
+                cv2.drawMarker(img, p[0], color[idx], markerSize=2)
         self.draw_text(img, str(piece.idx))
         plt.imshow(img)
 
