@@ -151,6 +151,7 @@ class Piece():
             Edge(self, index_bottom_right, index_top_right+1),
             Edge(self, index_top_right, index_top_left+1)
         ]
+        self.nb_flats = len([edge for edge in self.edges if edge.type == 'flat'])
 
 
     def compute_fingerprint(self, contour):
@@ -181,7 +182,28 @@ class Edge():
         self.points = points
         self.angle = angle_vector(self.p1 - self.p0)
         self.cx, self.cy = (self.p0 + self.p1) / 2
-        print(self.p0, self.p1, self.angle, (self.cx, self.cy))
+
+        s = math.sin(math.radians(self.angle))
+        c = math.cos(math.radians(self.angle))
+        matrix = np.array([[c, -s], [s, c]])
+        self.normalized_points = (self.points - self.p0) @ matrix  # first point at (0, 0), last point at (X, 0)
+        self.analyze()
+
+
+    def analyze(self):
+        # print(self.normalized_points)
+        # print(np.min(self.normalized_points, axis=0), np.max(self.normalized_points, axis=0))
+        # print(max(self.normalized_points))
+        heights = self.normalized_points[:,0,1]
+        min_height = min(heights)
+        max_height = max(heights)
+        if abs(max_height) + abs(min_height) < 3:
+            self.type = "flat"
+        elif abs(max_height) > abs(min_height):
+            self.type = "male"
+        else:
+            self.type = "female"
+        # print("edge", self.p0, self.p1, self.angle, self.type, min_height, max_height)
 
 
 class Solver():
@@ -283,8 +305,10 @@ pieces = solver.pieces
 # pieces = [piece for piece in solver.pieces if not (piece.is_border_top or piece.is_border_bottom)]
 # pieces = [piece for piece in solver.pieces if piece.idx in [11, 41]]
 
-pieces.sort(key=lambda piece: min([edge.arcLength / edge.straightLength for edge in piece.edges]))
+# pieces.sort(key=lambda piece: min([edge.arcLength / edge.straightLength for edge in piece.edges]))
+# pieces.sort(key=lambda piece: len([edge for edge in piece.edges if edge.type == 'flat']), reverse=True)
+pieces = [piece for piece in solver.pieces if piece.nb_flats == 2]
 
-page = 3
+page = 1
 display = Display()
 display.show(pieces[(page - 1)*48:page*48])
