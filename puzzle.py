@@ -235,13 +235,26 @@ class Solver():
         for piece in self.pieces:
             piece.analyze()
 
-        # nb_corners = len([piece for piece in self.pieces if len(piece.borders) == 2])
-        # print(f"Number of detected corner pieces: {nb_corners}")
-        # perimeter = sum([len(piece.borders) for piece in self.pieces])
-        # print(f"Perimeter: {perimeter}")
-        # assert len(corner_pieces) == 4
-        # assert perimeter & nb total pieces
-        # compute puzzle shape
+        self.corner_pieces = [piece for piece in self.pieces if piece.nb_flats == 2]
+        self.border_pieces = [piece for piece in self.pieces if piece.nb_flats == 1]
+        self.inner_pieces = [piece for piece in self.pieces if piece.nb_flats == 0]
+        nb_corners = len(self.corner_pieces)
+        nb_borders = len(self.border_pieces)
+        nb_inner = len(self.inner_pieces)
+        print(f"Number of detected corner pieces: {nb_corners}")
+        print(f"Number of detected border pieces: {nb_borders}")
+        print(f"Number of detected inner pieces: {nb_inner}")
+        assert nb_corners == 4
+        # H**2 - H*B/2 + I = 0
+        a = 1
+        b = - nb_borders / 2
+        c = nb_inner
+        delta = b**2 - 4*a*c
+        height = int((-b - math.sqrt(delta)) / (2*a))
+        width = int((-b + math.sqrt(delta)) / (2*a))
+        print(f"Size of puzzle: {width}x{height}")
+        assert height * width == nb_inner
+        assert 2 * (height + width) == nb_borders
 
 
 class Display():
