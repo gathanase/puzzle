@@ -8,7 +8,7 @@ Steps:
 * compute pieces DONE
   assert size and number of pieces?
 * rotate pieces DONE
-* compute likely borders DONE
+* compute likely borders???
 * compute 4 corners DONE
   assert corners?
 * compute 4 edge contour DONE
