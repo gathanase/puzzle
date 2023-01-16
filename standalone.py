@@ -12,6 +12,8 @@ import numpy as np
 import cv2
 import math
 import statistics
+from functools import cache
+from scipy.signal import savgol_filter
 from scipy.signal import find_peaks
 from collections import Counter
 
@@ -46,25 +48,31 @@ regions = [Item(contour=contour, area=cv2.contourArea(contour), rect=cv2.boundin
 median_area = statistics.median([region.area for region in regions])
 min_area = 0.5 * median_area
 max_area = 2 * median_area
-logging.info(f"Ignore too big or small regions, median_area: {median_area}")
+print(f"Ignore too big or small regions, median_area: {median_area}")
 
 regions = [region for region in regions if 0.5 < region.area / median_area < 2]
-logging.info(f"Number of remaining regions: {len(regions)}")
+print(f"Number of remaining regions: {len(regions)}")
 
 pieces = []
 for region in regions:
     x, y, w, h = region.rect
     p = np.array([x, y])
+    col = int((x - w/2) * 13 / 4540)
+    row = int(1 + (y - h/2) * 13 / 4450)
+    name = chr(ord('A') + col) + str(row)
     piece = Item(
         contour=region.contour - p,
         area=region.area,
         img_rgb=img_rgb[y:y+h, x:x+w],
         img_gray=img_gray[y:y+h, x:x+w],
-        size=np.array([h, w])
+        size=np.array([h, w]),
+        name=name
     )
     pieces.append(piece)
 
 logging.info('# Analyze pieces')
+
+logging.info('## Detect corners')
 
 for piece in pieces:
     min_area_rect = cv2.minAreaRect(piece.contour)
@@ -118,7 +126,9 @@ for piece in pieces:
     for idx, corner in enumerate(corners):
         corner.update(prev=corners[idx-1], next=corners[idx+1])
     piece.update(corners=corners)
-    
+
+logging.info('## Analyze edges')
+
 def length(v):
     return v[0]**2 + v[1]**2
 
@@ -130,14 +140,18 @@ def sub_contour(c, idx0, idx1):
 
 for piece in pieces:
     for corner in piece.corners:
-        distances = [length(p[0] - corner.point) for p in piece.contour]
-        corner.update(idx=distances.index(min(distances)))
-    
+        results = [(length(p[0] - corner.point), idx, p[0]) for idx, p in enumerate(piece.contour)]
+        distance, idx, point = min(results)
+        corner.update(
+            idx=idx,
+            point=point
+        )
+
     edges = LoopingList()
     for corner in piece.corners:
         corner0 = corner.prev
         corner1 = corner
-        contour = sub_contour(piece.contour, corner0.idx, corner1.idx)
+        contour = sub_contour(piece.contour, corner0.idx, corner1.idx+1)
         edge = Item(
             contour=contour,
             corner0=corner0,
@@ -148,7 +162,7 @@ for piece in pieces:
             idx1=corner1.idx
         )
         edges.append(edge)
-    
+
     piece.update(edges=edges)
 
     for edge in piece.edges:
@@ -187,6 +201,7 @@ for piece in pieces:
         edge.update(
             normalized_prev_point=(edge.prev.p0 - edge.p0) @ matrix,
             normalized_next_point=(edge.next.p1 - edge.p1) @ matrix,
+            normalized_contour=normalized_contour
         )
 
     piece.update(nb_flats=nb_flats)
@@ -203,62 +218,36 @@ for idx, piece in enumerate(pieces):
         p_prev = p0 + edge.normalized_prev_point
         p_next = p1 + edge.normalized_next_point
 
-logging.info('# Compute puzzle size')
+logging.info('## Enhance contours')
 
-nb_flats = Counter([piece.nb_flats for piece in pieces])
+NB_SAMPLES = 20
 
-assert nb_flats[2] == 4
-# H**2 - H*B/2 + I = 0
-a = 1
-b = - nb_flats[1] / 2
-c = nb_flats[0]
-delta = b**2 - 4*a*c
-inner_height = int((-b - math.sqrt(delta)) / (2*a))
-inner_width = int((-b + math.sqrt(delta)) / (2*a))
-logging.info(f"Size of puzzle: {2 + inner_width}x{2 + inner_height}")
-assert inner_height * inner_width == nb_flats[0]
-assert 2 * (inner_height + inner_width) == nb_flats[1]
+for piece in pieces:
+    for edge in piece.edges:
+        # smooth the curve
+        smoothed = np.array(edge.normalized_contour)
+        smoothed[:, 0, 0] = savgol_filter(smoothed[:, 0, 0], 21, 1)
+        smoothed[:, 0, 1] = savgol_filter(smoothed[:, 0, 1], 21, 1)
 
-logging.info('# Compute the border')
+        # compute the distance from the first point, this is not exactly edge.arc_length
+        deltas = smoothed[1:] - smoothed[:-1]
+        distances = np.cumsum(np.sqrt(np.sum(deltas ** 2, axis=2)))
+        max_distance = distances[-1]
+        # get N equidistant points
+        sampled = []
+        for i in range(NB_SAMPLES):
+            distance = i * max_distance / (NB_SAMPLES - 1)
+            idx = np.argmax(distances >= distance)
+            sampled.append(smoothed[idx])
+        sampled = np.array(sampled)
+        edge.update(
+            smoothed_contour=smoothed,
+            sampled_contour=sampled
+        )
 
-before_flat_features = {}  # key=piece, value=(flat_edge, side_features)
-after_flat_features = {}  # key=piece, value=(flat_edge, side_features)
-for piece, edge in [(piece, edge) for piece in pieces for edge in piece.edges if edge.type == 0]:
-    if edge.prev.type != 0:
-        feature = np.array([
-            edge.prev.straight_length,
-            edge.prev.arc_length,
-            edge.prev.height,
-            edge.normalized_prev_point[0],
-            edge.normalized_prev_point[1]
-        ])
-        before_flat_features[piece] = (edge, feature)
-    if edge.next.type != 0:
-        feature = np.array([
-            edge.next.straight_length,
-            edge.next.arc_length,
-            edge.next.height,
-            edge.normalized_next_point[0],
-            edge.normalized_next_point[1]
-        ])
-        after_flat_features[piece] = (edge, feature)
+logging.info('## Add piece utilities')
 
-male_after_flat_features = np.array([feature for piece, (edge, feature) in after_flat_features.items() if edge.next.type == 1])
-female_after_flat_features = np.array([feature for piece, (edge, feature) in after_flat_features.items() if edge.next.type == -1])
-male_before_flat_features = np.array([feature for piece, (edge, feature) in before_flat_features.items() if edge.prev.type == 1])
-female_before_flat_features = np.array([feature for piece, (edge, feature) in before_flat_features.items() if edge.prev.type == -1])
-
-def best_pieces_after_flat(piece):
-    ref_edge, ref_features = after_flat_features[piece]
-    results = [(sum((features - ref_features)**2), piece, edge) for piece, (edge, features) in before_flat_features.items() if edge.prev.type == -ref_edge.next.type]
-    results.sort()
-    return [(piece, edge) for score, piece, edge in results]
-
-def best_pieces_before_flat(piece):
-    ref_edge, ref_features = before_flat_features[piece]
-    results = [(sum((features - ref_features)**2), piece, edge) for piece, (edge, features) in after_flat_features.items() if edge.next.type == -ref_edge.prev.type]
-    results.sort()
-    return [(piece, edge) for score, piece, edge in results]
+piece_by_name = dict([(piece.name, piece) for piece in pieces])
 
 def transform_idx(piece, contour_idx, transform):
     return cv2.transform(piece.contour[contour_idx:contour_idx+1], transform)[0][0]
@@ -274,47 +263,162 @@ def make_transform(piece, contour_idx, target_position, angle_degrees):
     transform = translation_matrix @ rotation_matrix33
     return transform[:2]
 
-solution = {}  # key=(i, j), value=(piece, top_edge_idx)
-PAD = 30
+def first_flat_edge(piece):
+    return [edge for edge in piece.edges if edge.type == 0 and edge.prev.type != 0][0]
 
-def draw_solution():
-    solution_rgb = np.zeros_like(img_rgb)
-    for piece, top_edge_idx in solution.values():
-        cv2.drawContours(solution_rgb, cv2.transform(piece.contour, piece.transform), -1, (255, 255, 255), 5)
-    cv2.imwrite("solution.png", solution_rgb)
+def last_flat_edge(piece):
+    return [edge for edge in piece.edges if edge.type == 0 and edge.next.type != 0][0]
+
+def edge_after_flat(piece):
+    return last_flat_edge(piece).next
+
+def edge_before_flat(piece):
+    return first_flat_edge(piece).prev
+
+logging.info('# Compute puzzle size')
+
+def compute_size(area, perimeter):
+    # perimeter = 2 * (H+W)
+    # area = H*W
+    # H**2 - perimeter/2 * H + area = 0
+    a = 1
+    b = -perimeter/2
+    c = area
+    delta = b**2 - 4*a*c
+    h = int((-b - math.sqrt(delta)) / (2*a))
+    w = int((-b + math.sqrt(delta)) / (2*a))
+    return (min(h, w), max(h, w))
+
+solution = Item()
+
+nb_flats = Counter([piece.nb_flats for piece in pieces])
+assert nb_flats[2] == 4
+area = len(pieces)
+perimeter = nb_flats[1] + 2*nb_flats[2]
+w, h = compute_size(area, perimeter)
+print(f"Size of puzzle grid: {w} x {h}")
+assert w * h == area
+assert 2 * (w + h) == perimeter
+
+solution.update(grid_size = (w, h))
+
+area = sum([piece.area for piece in pieces])
+perimeter = sum([edge.straight_length+1 for piece in pieces for edge in piece.edges if edge.type == 0])
+
+w, h = compute_size(area, perimeter)
+print(f"Approximate size of puzzle image: {w} x {h}")
+
+solution.update(approximate_size = (w, h))
+
+logging.info('# Add piece matchers')
+
+logging.info('## Add border utilities')
+
+border_pieces = [piece for piece in pieces if piece.nb_flats > 0]
+
+logging.info('## Distance border match')
+
+for piece in pieces:
+    for edge in piece.edges:
+        angle_degrees = edge.angle_degrees - edge.prev.angle_degrees
+        matrix = cv2.getRotationMatrix2D((0, 0), angle_degrees, 1)
+        samples = cv2.transform(edge.sampled_contour, matrix)
+        edge.update(sampled_contour_after_edge=samples)
+
+        angle_degrees = edge.angle_degrees - edge.next.angle_degrees
+        matrix = cv2.getRotationMatrix2D((0, 0), angle_degrees, 1)
+        samples = cv2.transform(edge.sampled_contour, matrix)
+        edge.update(sampled_contour_before_edge=samples)
+
+@cache
+def distance_matches_after_flat(piece0):
+    edge0 = edge_after_flat(piece0)
+    contour0 = edge0.sampled_contour_after_edge[::-1]
+
+    results = []
+    for piece1 in pieces:
+        if piece1.nb_flats > 0:
+            edge1 = edge_before_flat(piece1)
+            if edge1.type == -edge0.type:
+                contour1 = edge1.sampled_contour_before_edge
+                diff = contour0 - contour1
+                offset = np.mean(diff, axis=0)
+                score = np.sum((diff - offset)**2)
+                results.append((score, piece1))
+    results.sort()
+    return [(score, piece) for score, piece in results]
+
+logging.info('# Assert the border')
+
+a1 = piece_by_name['A1']
+ordered_border = [a1]
+used_pieces = set()  # do not put A1, it will be used for the last piece
+while True:
+    next_piece = distance_matches_after_flat(ordered_border[-1])[0][1]
+    if next_piece in used_pieces:
+        break
+    ordered_border.append(next_piece)
+    used_pieces.add(next_piece)
+
+print("Computed border pieces:", ' '.join([piece.name for piece in ordered_border]))
+assert used_pieces == set(border_pieces)
+assert ordered_border[-1] == ordered_border[0]  # loop on the A1 piece
+ordered_border = ordered_border[:-1]  # remove the repeated A1 piece
+h, w = solution.grid_size
+if ordered_border[h-1].nb_flats == 1:
+    h, w = w, h
+    solution.grid_size = w, h
+assert [ordered_border[i].nb_flats for i in [0, h-1, h+w-2, 2*h+w-3]] == [2, 2, 2, 2];
+
+logging.info('# Place the border')
+
+PAD = 30
+size = max(solution.approximate_size) + 2*PAD
+
+solution.update(
+    img_rgb=np.zeros((size, size, 3), img_rgb.dtype),
+    grid={} # key=(i, j), value=(piece, top_edge_idx)
+)
+
+def place_piece(pos, piece, top_edge_idx):
+    x, y = pos
+    c = int((x+y)%2 * 255)
+    solution.grid[pos] = (piece, top_edge_idx)
+    contour = cv2.transform(piece.contour, piece.transform)
+    cv2.drawContours(solution.img_rgb, contour, -1, (c, 255 - c, 255), 5)
 
 def place_top_left():
-    piece = [piece for piece in pieces if piece.nb_flats == 2][2]
-    edge = [edge for edge in piece.edges if edge.type == 0 and edge.prev.type != 0][0]
-    corner = edge.corner1
-    transform = make_transform(piece, corner.idx, np.array([PAD, PAD]), edge.angle_degrees + 180)
+    piece = piece_by_name['A1']
+    top_edge = first_flat_edge(piece)
+    corner = top_edge.corner1
+    transform = make_transform(piece, corner.idx, np.array([PAD, PAD]), top_edge.angle_degrees + 180)
     piece.update(transform=transform)
-    solution[(0, 0)] = (piece, edge.idx)
+    place_piece((0, 0), piece, top_edge.idx)
 
 def place_border(pos, dpos, quarter):
-    x, y = pos
-    dx, dy = dpos
+    pos = np.array(pos)
+    dpos = np.array(dpos)
     for _ in range(11):
-        piece, top_edge_idx = solution[(x, y)]
-        edge = piece.edges[top_edge_idx - quarter]
-        ref_point = transform_idx(piece, edge.corner0.idx, piece.transform)
-        next_piece, next_edge = best_pieces_before_flat(piece)[0]
-        next_transform = make_transform(next_piece, next_edge.idx1, ref_point, next_edge.angle_degrees - 90 * quarter + 180)
-        next_piece.update(transform=next_transform)
-        x += dx
-        y += dy
-        solution[(x, y)] = next_piece, next_edge.idx + quarter
-        if next_piece.nb_flats == 2:
+        piece, top_edge_idx = solution.grid[tuple(pos)]
+        pos += dpos
+        if tuple(pos) in solution.grid:
             break
+        flat_edge = piece.edges[top_edge_idx - quarter]
+        ref_point = transform_idx(piece, flat_edge.corner1.idx, piece.transform)
+        score, piece = distance_matches_after_flat(piece)[0]
+        flat_edge = first_flat_edge(piece)
+        transform = make_transform(piece, flat_edge.idx0, ref_point, flat_edge.angle_degrees + 180 - 90 * quarter)
+        piece.update(transform=transform)
+        place_piece(tuple(pos), piece, flat_edge.idx + quarter)
 
 place_top_left()
-place_border((0, 0), (1, 0), 0)
-place_border((11, 0), (0, 1), 1)
-#place_border((11, 11), (-1, 0), 2)
-#place_border((0, 11), (0, -1), 3)
+place_border((0, 0), (0, 1), 3)
+place_border((0, 11), (1, 0), 2)
+place_border((11, 11), (0, -1), 1)
+place_border((11, 0), (-1, 0), 0)
 
 logging.info("Write the image file")
 
-draw_solution();
+cv2.imwrite("solution.png", solution.img_rgb)
 
 logging.info("Done")
