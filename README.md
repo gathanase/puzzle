@@ -18,6 +18,6 @@ There is a much more challenging dataset available at: https://www.kaggle.com/da
 * compute 4 edge features DONE
   * assert number of corner&border&regular pieces DONE
 * compute puzzle size DONE
-* assemble border pieces ONGOING
-  * compute mask along the edge?
-* assemble inner pieces
+* assemble border pieces DONE
+  * assert the border
+* assemble inner pieces TODO
