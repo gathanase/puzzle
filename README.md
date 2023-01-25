@@ -5,7 +5,7 @@ Puzzle pieces are provided by https://www.reddit.com/r/StuffMadeHere/comments/za
 There is a much more challenging dataset available at: https://www.kaggle.com/datasets/etaifour/jigsawpuzzle
 
 # Open in Colab
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/gathanase/puzzle/blob/main/standalone.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/gathanase/puzzle/blob/main/solve144.ipynb)
 
 # Roadmap
 * read image DONE
