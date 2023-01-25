@@ -11,13 +11,11 @@ There is a much more challenging dataset available at: https://www.kaggle.com/da
 * read image DONE
 * compute contours DONE
 * compute pieces DONE
-  * assert size and number of pieces?
-* compute 4 corners DONE
-  * assert corners?
-* compute 4 edge contour DONE
-* compute 4 edge features DONE
+* compute piece corners DONE
+* compute edge contours DONE
+* compute edge features DONE
   * assert number of corner&border&regular pieces DONE
 * compute puzzle size DONE
 * assemble border pieces DONE
-  * assert the border
-* assemble inner pieces TODO
+  * assert the border DONE
+* assemble inner pieces ON-GOING
