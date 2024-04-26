@@ -1,3 +1,4 @@
 *.swp
+*.npz
 jigsaw144.png
 __pycache__
