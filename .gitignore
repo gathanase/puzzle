@@ -1,4 +1,4 @@
 *.swp
-*.npz
+kaggle*
 jigsaw144.png
 __pycache__
