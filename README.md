@@ -18,4 +18,5 @@ There is a much more challenging dataset available at: https://www.kaggle.com/da
 * compute puzzle size DONE
 * assemble border pieces DONE
   * assert the border DONE
-* assemble inner pieces ON-GOING
+* assemble inner pieces DONE
+* place inner pieces accurately TODO
